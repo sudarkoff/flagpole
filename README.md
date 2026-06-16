@@ -30,6 +30,7 @@ if c.For(flagpole.Attributes{"id": userID, "plan": "pro"}).IsOn("new-checkout") 
 - [GrowthBook compatibility](#growthbook-compatibility)
 - [How it works](#how-it-works)
 - [Testing](#testing)
+- [React bindings](#react-bindings)
 - [Roadmap](#roadmap)
 - [License](#license)
 
@@ -378,9 +379,12 @@ go test ./sourcepg/...
 
 The compatibility suite (`compat_test.go`) runs flagpole's hashing and evaluator against GrowthBook's vendored `cases.json` fixtures.
 
+## React bindings
+
+[`@sudarkoff/flagpole-react`](./react) exposes your server-evaluated flags to a React app via a `FlagsProvider` and `useFeatureIsOn` / `useFeatureValue` hooks. Install with `npm install @sudarkoff/flagpole-react`; see [`react/README.md`](./react/README.md) for usage.
+
 ## Roadmap
 
-- **[`@sudarkoff/flagpole-react`](./react)** — `FlagsProvider` + `useFeatureIsOn`/`useFeatureValue`, hydrated from your server's pre-evaluated flag map.
 - **Phase B — experiments** — exposure analysis: metric definitions, lift, and significance over the exposures captured by `Tracker`.
 
 The `Tracker`/`Exposure` seam and the experiment fields in the schema are already in place so these are additive.
