@@ -261,8 +261,11 @@ c, err := flagpole.New(ctx, src,
 |--------|-------------|
 | `WithRefreshInterval(d)` | How often to reload from the Source (default `60s`; `≤ 0` loads once and never refreshes). |
 | `WithTracker(tr)` | Experiment exposure tracker (default `NoopTracker`). |
+| `WithOnError(fn)` | Callback invoked when a background refresh fails (default no-op). The Client keeps serving the last good snapshot; use this to log/metric/alert instead of failing silently. |
 
 `Close()` stops the background refresh and is safe to call once the Client is no longer needed (and safe to call more than once).
+
+A background refresh that fails leaves the Client serving its last good snapshot. `LastRefresh()` returns the time of the most recent *successful* load; alert when `time.Since(client.LastRefresh())` exceeds a small multiple of the refresh interval to catch a Client wedged on stale flags (e.g. a Source that has been unreachable for minutes).
 
 Because evaluation is local and bucketing is deterministic, multiple processes pointed at the same Source (e.g. an API server and a background worker sharing one Postgres) will independently agree on the result for any given user — no coordination required.
 

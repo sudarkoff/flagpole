@@ -12,10 +12,12 @@ type Client struct {
 	src     Source
 	tracker Tracker
 
-	mu       sync.RWMutex
-	features map[string]Feature
+	mu          sync.RWMutex
+	features    map[string]Feature
+	lastRefresh time.Time
 
 	refresh time.Duration
+	onError func(error)
 	cancel  context.CancelFunc
 	done    chan struct{}
 }
@@ -34,6 +36,19 @@ func WithTracker(tr Tracker) Option {
 	return func(c *Client) { c.tracker = tr }
 }
 
+// WithOnError sets a callback invoked when a background refresh fails. The
+// Client keeps serving the last good snapshot regardless; the hook exists so
+// hosts can surface the failure (log/metric/alert) instead of it being silent.
+// The default is a no-op. Keep the callback cheap and non-blocking — it runs on
+// the refresh goroutine and delays the next reload.
+func WithOnError(fn func(error)) Option {
+	return func(c *Client) {
+		if fn != nil {
+			c.onError = fn
+		}
+	}
+}
+
 // New loads features once synchronously, then (unless disabled) refreshes them
 // on an interval until Close is called.
 func New(ctx context.Context, src Source, opts ...Option) (*Client, error) {
@@ -41,6 +56,7 @@ func New(ctx context.Context, src Source, opts ...Option) (*Client, error) {
 		src:     src,
 		tracker: NoopTracker{},
 		refresh: 60 * time.Second,
+		onError: func(error) {},
 		done:    make(chan struct{}),
 	}
 	for _, o := range opts {
@@ -66,8 +82,19 @@ func (c *Client) reload(ctx context.Context) error {
 	}
 	c.mu.Lock()
 	c.features = feats
+	c.lastRefresh = time.Now()
 	c.mu.Unlock()
 	return nil
+}
+
+// LastRefresh returns the time of the most recent successful load from the
+// Source (the initial load in New, or a background refresh). Hosts can alert
+// when time.Since(LastRefresh()) exceeds a multiple of the refresh interval to
+// detect a Client stuck serving stale flags after repeated refresh failures.
+func (c *Client) LastRefresh() time.Time {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.lastRefresh
 }
 
 func (c *Client) loop(ctx context.Context) {
@@ -79,7 +106,9 @@ func (c *Client) loop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			_ = c.reload(ctx) // keep serving stale on transient errors
+			if err := c.reload(ctx); err != nil {
+				c.onError(err) // keep serving stale; surface the failure
+			}
 		}
 	}
 }
