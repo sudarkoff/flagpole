@@ -167,15 +167,19 @@ flagpole implements a strict, tested subset of the GrowthBook feature evaluation
 - `defaultValue` / `force` values
 - Percentage rollout via `coverage` (deterministic FNV-1a v2 bucketing, `hashVersion: 2`)
 - `hashAttribute` and `seed` on rollout rules
-- Condition operators: equality (implicit), `$eq`, `$ne`, `$in`
+- Condition operators: equality (implicit, including array/object deep-equality), `$eq`, `$ne`, `$in` (`$in` matches by set intersection when the attribute is itself an array)
 
 **Out of scope (skipped, not evaluated):**
 - Experiment `variations` / `weights` / `key` (Phase B)
-- Condition operators: `$gt`, `$gte`, `$lt`, `$lte`, `$regex`, `$exists`, `$not`, `$or`, `$and`
+- Condition operators: `$gt`, `$gte`, `$lt`, `$lte`, `$regex`, `$exists`, `$not`, `$or`, `$and`, `$nor`
 - `range`, `filters`, `parentConditions`
 - `hashVersion` other than 2
 
-Compatibility is validated against GrowthBook's published `cases.json` SDK test fixtures in `compat_test.go`.
+A condition that uses an unsupported operator (including top-level `$or`/`$and`/`$not`/`$nor`) causes its rule to be **skipped**, never silently mis-evaluated.
+
+**Migrating from GrowthBook:** flagpole buckets with `hashVersion: 2`. A rollout rule with no `hashVersion` is bucketed with v2 here, whereas GrowthBook's default is v1 — so set `hashVersion: 2` explicitly on any rollout rule you intend to share between the two systems, and a rule requesting any other version is skipped.
+
+Compatibility is validated against GrowthBook's published `cases.json` SDK test fixtures in `compat_test.go` (hashing, feature evaluation, and the `evalCondition` oracle suite for the supported operator subset).
 
 ## License
 

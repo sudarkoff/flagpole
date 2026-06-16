@@ -13,6 +13,10 @@ type Source interface {
 
 // StaticSource serves a fixed set of features (tests, or a GrowthBook-format
 // payload fetched elsewhere).
+//
+// Do not mutate Features after passing the StaticSource to a Client: Load
+// returns the map directly, so a later mutation would be observed by the Client
+// outside its lock.
 type StaticSource struct {
 	Features map[string]Feature
 }

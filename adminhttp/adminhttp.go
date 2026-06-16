@@ -13,6 +13,9 @@ import (
 
 // Store is the persistence the admin handler operates on. A Postgres-backed
 // implementation typically lives next to your sourcepg setup.
+//
+// Archive should be idempotent: implementations should return nil even when the
+// key does not exist (the handler responds 200 either way).
 type Store interface {
 	List(ctx context.Context) (map[string]flagpole.Feature, error)
 	Upsert(ctx context.Context, key string, f flagpole.Feature) error
