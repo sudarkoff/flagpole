@@ -28,6 +28,33 @@ func TestEvaluateForceWithCondition(t *testing.T) {
 	}
 }
 
+func TestEvaluateSkipsUnsupportedConditionRule(t *testing.T) {
+	// First rule uses an unsupported operator ($gt) -> matchCondition errors ->
+	// the rule must be skipped, not applied. The second rule should win.
+	f := Feature{
+		DefaultValue: false,
+		Rules: []Rule{
+			{Condition: map[string]any{"age": map[string]any{"$gt": 18}}, Force: true},
+			{Condition: map[string]any{"plan": "starter"}, Force: true},
+		},
+	}
+	// Unsupported-operator rule skipped; "starter" rule applies -> on.
+	if r := Evaluate(f, "flag", Attributes{"id": "u1", "age": 30, "plan": "starter"}); !r.On {
+		t.Error("expected the unsupported-operator rule to be skipped and the starter rule to apply")
+	}
+	// Unsupported-operator rule skipped; second rule misses -> default false.
+	if r := Evaluate(f, "flag", Attributes{"id": "u1", "age": 30, "plan": "free"}); r.On {
+		t.Error("expected default (off) when no valid rule matches")
+	}
+}
+
+func TestTruthyIntZeroIsFalse(t *testing.T) {
+	f := Feature{DefaultValue: 0} // Go int zero
+	if Evaluate(f, "flag", Attributes{"id": "u1"}).On {
+		t.Error("int zero default should be off")
+	}
+}
+
 func TestEvaluateCoverageDeterministic(t *testing.T) {
 	cov := 0.5
 	f := Feature{
