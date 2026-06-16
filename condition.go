@@ -1,12 +1,19 @@
 package flagpole
 
-import "fmt"
+import (
+	"fmt"
+	"reflect"
+	"strings"
+)
 
 // matchCondition evaluates a GrowthBook-style condition object against attrs.
 // Supported: top-level field equality, and the $eq, $ne, $in operators.
 // All fields are ANDed. Unsupported operators return an error.
 func matchCondition(cond map[string]any, attrs Attributes) (bool, error) {
 	for field, expected := range cond {
+		if strings.HasPrefix(field, "$") {
+			return false, fmt.Errorf("flagpole: unsupported condition operator %q", field)
+		}
 		actual := attrs[field]
 		switch exp := expected.(type) {
 		case map[string]any:
@@ -42,14 +49,7 @@ func matchOperators(ops map[string]any, actual any) (bool, error) {
 			if !ok {
 				return false, fmt.Errorf("flagpole: $in expects an array, got %T", want)
 			}
-			found := false
-			for _, v := range list {
-				if equalValues(actual, v) {
-					found = true
-					break
-				}
-			}
-			if !found {
+			if !inList(actual, list) {
 				return false, nil
 			}
 		default:
@@ -59,12 +59,41 @@ func matchOperators(ops map[string]any, actual any) (bool, error) {
 	return true, nil
 }
 
-// equalValues compares two values with JSON-ish semantics (numbers compared as float64).
+// inList reports whether actual matches the $in list. If actual is itself a
+// slice, it matches when any element is in the list (GrowthBook intersection
+// semantics); otherwise it matches on scalar membership.
+func inList(actual any, list []any) bool {
+	if arr, ok := actual.([]any); ok {
+		for _, a := range arr {
+			for _, v := range list {
+				if equalValues(a, v) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	for _, v := range list {
+		if equalValues(actual, v) {
+			return true
+		}
+	}
+	return false
+}
+
+// equalValues compares two values with JSON-ish semantics (numbers compared as
+// float64, slices/maps via reflect.DeepEqual to avoid panic on uncomparable types).
 func equalValues(a, b any) bool {
 	af, aok := toFloat(a)
 	bf, bok := toFloat(b)
 	if aok && bok {
 		return af == bf
+	}
+	// Use reflect.DeepEqual for slices and maps to avoid runtime panics when
+	// comparing uncomparable types through interface{}.
+	switch a.(type) {
+	case []any, map[string]any:
+		return reflect.DeepEqual(a, b)
 	}
 	return a == b
 }

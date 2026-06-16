@@ -36,3 +36,23 @@ func TestConditionUnknownOperator(t *testing.T) {
 		t.Fatal("expected error for unsupported operator $gt")
 	}
 }
+
+func TestConditionInArrayAttribute(t *testing.T) {
+	// actual is an array; $in matches on intersection.
+	cond := map[string]any{"tags": map[string]any{"$in": []any{"a", "b"}}}
+	if ok, err := matchCondition(cond, Attributes{"tags": []any{"d", "e", "a"}}); err != nil || !ok {
+		t.Errorf("intersection should match: ok=%v err=%v", ok, err)
+	}
+	if ok, err := matchCondition(cond, Attributes{"tags": []any{"x", "y"}}); err != nil || ok {
+		t.Errorf("no intersection should not match: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestConditionTopLevelOperatorErrors(t *testing.T) {
+	for _, op := range []string{"$or", "$and", "$not", "$nor"} {
+		cond := map[string]any{op: []any{}}
+		if _, err := matchCondition(cond, Attributes{}); err == nil {
+			t.Errorf("expected error for top-level %s", op)
+		}
+	}
+}

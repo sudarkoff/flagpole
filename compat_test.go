@@ -89,6 +89,43 @@ func TestCompatFeatures(t *testing.T) {
 	}
 }
 
+func TestCompatEvalCondition(t *testing.T) {
+	all := loadCases(t)
+	var cases [][]json.RawMessage
+	if err := json.Unmarshal(all["evalCondition"], &cases); err != nil {
+		t.Fatalf("parse evalCondition cases: %v", err)
+	}
+	supported := 0
+	for _, c := range cases {
+		var name string
+		_ = json.Unmarshal(c[0], &name)
+		var cond map[string]any
+		if err := json.Unmarshal(c[1], &cond); err != nil {
+			continue
+		}
+		var attrs Attributes
+		if err := json.Unmarshal(c[2], &attrs); err != nil {
+			continue
+		}
+		var want bool
+		_ = json.Unmarshal(c[3], &want)
+
+		got, err := matchCondition(cond, attrs)
+		if err != nil {
+			// Uses a construct outside our supported subset (logical/unknown operators).
+			continue
+		}
+		supported++
+		if got != want {
+			t.Errorf("%s: matchCondition = %v, want %v", name, got, want)
+		}
+	}
+	if supported == 0 {
+		t.Fatal("expected at least some supported evalCondition cases to be exercised")
+	}
+	t.Logf("evalCondition: %d supported cases asserted", supported)
+}
+
 // usesUnsupported reports whether a feature relies on rule kinds outside this
 // library's Phase-A subset (experiment variations, or condition operators we
 // don't implement).
