@@ -12,10 +12,8 @@
 
 **Explicitly out of scope — separate follow-up plans:**
 - `@flagpole/react` npm package (provider + hooks).
-- twocal integration (User→Attributes, bootstrap endpoint, custops UI, wiring the real flags). The library must contain **zero** references to twocal.
+- Host-application integration (mapping your principal/user to `Attributes`, embedding evaluated flags in a bootstrap response, admin UI, wiring real flags). The library itself must stay generic — **zero** references to any specific consuming application.
 - Phase B experiment *analysis* (metrics, significance). The schema fields and `Tracker` seam are built here; analysis is not.
-
-**Source spec:** `twocal/docs/superpowers/specs/2026-06-15-flagpole-feature-flags-design.md`
 
 ---
 
@@ -1586,4 +1584,4 @@ git tag v0.1.0
 ## Follow-up plans (not this plan)
 
 1. **`@flagpole/react`** — `FlagsProvider` + `useFeatureIsOn`/`useFeatureValue`, hydrated from a host-supplied payload. Lives in this repo (e.g. `react/`) or its own; published to npm.
-2. **twocal integration** — `User→Attributes`, bootstrap endpoint embedding evaluated flags, `Client` in API + worker via `sourcepg`, a Postgres `Store` for `adminhttp`, custops admin UI, an `experiment_exposures` table + a persistent `Tracker`, and wiring `skip-on-sync` + `merge-conflict-resolution`. Written against flagpole `v0.1.0`.
+2. **Host-application integration** — map your principal/user to `Attributes`, embed evaluated flags in your app's bootstrap response, run a `Client` (backed by `sourcepg`) in your services, implement a Postgres `Store` for `adminhttp`, add an `experiment_exposures` table + a persistent `Tracker`, and wire your real flags. Written against flagpole `v0.1.0`.
