@@ -25,4 +25,12 @@ type Rule struct {
 	Key        string    `json:"key,omitempty"`
 	Variations []any     `json:"variations,omitempty"`
 	Weights    []float64 `json:"weights,omitempty"`
+
+	// Advanced bucketing fields (Phase B+). Parsed but not evaluated; presence
+	// triggers the unsupported-case skip in the compatibility test suite.
+	Range   []float64        `json:"range,omitempty"`
+	Filters []map[string]any `json:"filters,omitempty"`
+
+	// Prerequisite flags (Phase B+). Parsed but not evaluated.
+	ParentConditions []map[string]any `json:"parentConditions,omitempty"`
 }
