@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"math"
 	"os"
+	"reflect"
 	"testing"
 )
 
@@ -82,6 +83,9 @@ func TestCompatFeatures(t *testing.T) {
 		if got.On != want.On {
 			t.Errorf("%s: on = %v, want %v", name, got.On, want.On)
 		}
+		if !reflect.DeepEqual(got.Value, want.Value) {
+			t.Errorf("%s: value = %#v, want %#v", name, got.Value, want.Value)
+		}
 	}
 }
 
@@ -108,6 +112,9 @@ func usesUnsupported(f Feature) bool {
 			return true
 		}
 		if len(r.ParentConditions) > 0 {
+			return true
+		}
+		if r.HashVersion != nil && *r.HashVersion != 2 {
 			return true
 		}
 		if r.Condition != nil {

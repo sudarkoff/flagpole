@@ -19,6 +19,7 @@ type Rule struct {
 	Coverage      *float64 `json:"coverage,omitempty"`
 	HashAttribute string   `json:"hashAttribute,omitempty"`
 	Seed          string   `json:"seed,omitempty"`
+	HashVersion   *int     `json:"hashVersion,omitempty"`
 
 	// Experiment fields (Phase B). Present in the schema now; evaluation of
 	// experiment rules is not implemented in this plan.

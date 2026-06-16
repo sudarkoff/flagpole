@@ -55,6 +55,36 @@ func TestTruthyIntZeroIsFalse(t *testing.T) {
 	}
 }
 
+func TestEvaluateSkipsUnknownHashVersionRule(t *testing.T) {
+	v := 99
+	cov := 1.0
+	f := Feature{
+		DefaultValue: "default",
+		Rules: []Rule{
+			{Coverage: &cov, HashVersion: &v, Force: "forced"},
+		},
+	}
+	// Unknown hashVersion => rollout rule skipped => default value.
+	r := Evaluate(f, "flag", Attributes{"id": "u1"})
+	if r.Value != "default" {
+		t.Errorf("value = %v, want \"default\" (rule should be skipped)", r.Value)
+	}
+}
+
+func TestEvaluateAppliesHashVersion2Rule(t *testing.T) {
+	v := 2
+	cov := 1.0 // coverage 1.0 => everyone included
+	f := Feature{
+		DefaultValue: "default",
+		Rules: []Rule{
+			{Coverage: &cov, HashVersion: &v, Force: "forced"},
+		},
+	}
+	if r := Evaluate(f, "flag", Attributes{"id": "u1"}); r.Value != "forced" {
+		t.Errorf("value = %v, want \"forced\" (hashVersion 2, coverage 1.0)", r.Value)
+	}
+}
+
 func TestEvaluateCoverageDeterministic(t *testing.T) {
 	cov := 0.5
 	f := Feature{

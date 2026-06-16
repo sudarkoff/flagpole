@@ -39,6 +39,12 @@ func Evaluate(f Feature, featureKey string, attrs Attributes) Result {
 }
 
 func inCoverage(rule Rule, featureKey string, attrs Attributes) bool {
+	// We implement hashVersion 2 only. A rule that explicitly requests any other
+	// version (including unknown versions, which GrowthBook skips) is outside our
+	// supported subset, so the rollout rule does not apply.
+	if rule.HashVersion != nil && *rule.HashVersion != 2 {
+		return false
+	}
 	hashAttr := rule.HashAttribute
 	if hashAttr == "" {
 		hashAttr = "id"
