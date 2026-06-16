@@ -1,4 +1,4 @@
-# @flagpole/react — Design Spec
+# @sudarkoff/flagpole-react — Design Spec
 
 **Date:** 2026-06-16
 **Status:** Approved, ready for planning
@@ -10,14 +10,14 @@
 A small React companion package for flagpole. The host application evaluates
 flags **server-side** (via the flagpole Go library) and embeds the resulting
 `{key: value}` map in its bootstrap payload (e.g. twocal's `/user` response).
-`@flagpole/react` exposes that map to the component tree through a provider and
+`@sudarkoff/flagpole-react` exposes that map to the component tree through a provider and
 two hooks whose names and signatures mirror GrowthBook's React SDK.
 
 **In scope:**
 - `FlagsProvider`, `useFeatureIsOn`, `useFeatureValue`.
 - Truthiness semantics identical to the Go library's evaluator.
 - Reactivity to a changing `flags` prop (so host refetches propagate).
-- Package lives in the flagpole repo under `react/`, published as `@flagpole/react`.
+- Package lives in the flagpole repo under `react/`, published as `@sudarkoff/flagpole-react`.
 
 **Out of scope (YAGNI):**
 - Any client-side evaluator or hashing (evaluation is server-side; the browser
@@ -33,8 +33,8 @@ two hooks whose names and signatures mirror GrowthBook's React SDK.
 - **Pre-evaluated model.** The provider receives an already-evaluated map; no
   evaluation happens in the browser.
 - **Monorepo placement.** `react/` subdirectory in the flagpole Go repo, with its
-  own `package.json`/`tsconfig`/test+build config. Published as `@flagpole/react`
-  (requires the `@flagpole` npm org).
+  own `package.json`/`tsconfig`/test+build config. Published as `@sudarkoff/flagpole-react`
+  (published under the `@sudarkoff` npm scope).
 - **Fetch-agnostic.** The package only reacts to the `flags` prop; the host
   decides when to supply a fresh map.
 
@@ -105,7 +105,7 @@ Notes documented in the README:
 ## Packaging, build & tooling
 
 - **Location:** `react/` in the flagpole repo. `package.json` `name`:
-  `@flagpole/react`.
+  `@sudarkoff/flagpole-react`.
 - **Build:** TypeScript compiled with **tsup** (esbuild) to **ESM + CJS + `.d.ts`**.
 - **Dependencies:** no runtime deps. `react` is a **peerDependency** (`>=18`,
   matching twocal). Dev deps: `typescript`, `tsup`, `vitest`,

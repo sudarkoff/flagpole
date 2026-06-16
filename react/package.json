@@ -1,5 +1,5 @@
 {
-  "name": "@flagpole/react",
+  "name": "@sudarkoff/flagpole-react",
   "version": "0.1.0",
   "description": "React hooks for flagpole feature flags — pre-evaluated, GrowthBook-compatible names.",
   "license": "Apache-2.0",

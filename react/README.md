@@ -1,16 +1,16 @@
-# @flagpole/react
+# @sudarkoff/flagpole-react
 
 React hooks for [flagpole](https://github.com/sudarkoff/flagpole) feature flags.
 
 Your server evaluates flags with the flagpole Go library and embeds the resulting
-`{key: value}` map in its bootstrap payload. `@flagpole/react` exposes that
+`{key: value}` map in its bootstrap payload. `@sudarkoff/flagpole-react` exposes that
 **pre-evaluated** map to your components — no flag rules or evaluation logic ship
 to the browser.
 
 ## Install
 
 ```
-npm install @flagpole/react
+npm install @sudarkoff/flagpole-react
 ```
 
 `react >= 18` is a peer dependency.
@@ -18,7 +18,7 @@ npm install @flagpole/react
 ## Usage
 
 ```tsx
-import { FlagsProvider, useFeatureIsOn, useFeatureValue } from "@flagpole/react";
+import { FlagsProvider, useFeatureIsOn, useFeatureValue } from "@sudarkoff/flagpole-react";
 
 function App({ flags }) {
   return (
