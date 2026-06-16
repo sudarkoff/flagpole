@@ -380,7 +380,7 @@ The compatibility suite (`compat_test.go`) runs flagpole's hashing and evaluator
 
 ## Roadmap
 
-- **`@flagpole/react`** — a React provider + `useFeatureIsOn`/`useFeatureValue` hooks, hydrated from a server-evaluated payload (no flag flicker, no browser-side flag fetch).
+- **[`@flagpole/react`](./react)** — `FlagsProvider` + `useFeatureIsOn`/`useFeatureValue`, hydrated from your server's pre-evaluated flag map.
 - **Phase B — experiments** — exposure analysis: metric definitions, lift, and significance over the exposures captured by `Tracker`.
 
 The `Tracker`/`Exposure` seam and the experiment fields in the schema are already in place so these are additive.
