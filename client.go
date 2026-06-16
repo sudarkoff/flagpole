@@ -116,17 +116,12 @@ func (e *Evaluation) result(key string) Result {
 // IsOn reports whether the flag resolves to a truthy value. Unknown flags are off.
 func (e *Evaluation) IsOn(key string) bool { return e.result(key).On }
 
-// Value returns the flag's resolved value, or def if unknown/nil.
+// Value returns the flag's resolved value, or def if the flag is unknown or
+// resolves to nil. An unknown flag yields a nil Result value, so a single
+// evaluation covers both cases.
 func (e *Evaluation) Value(key string, def any) any {
-	e.client.mu.RLock()
-	_, ok := e.client.features[key]
-	e.client.mu.RUnlock()
-	if !ok {
-		return def
+	if v := e.result(key).Value; v != nil {
+		return v
 	}
-	v := e.result(key).Value
-	if v == nil {
-		return def
-	}
-	return v
+	return def
 }
