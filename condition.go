@@ -60,11 +60,17 @@ func matchOperators(ops map[string]any, actual any) (bool, error) {
 }
 
 // inList reports whether actual matches the $in list. If actual is itself a
-// slice, it matches when any element is in the list (GrowthBook intersection
-// semantics); otherwise it matches on scalar membership.
+// slice or array (of any element type — []any, []string, []int, …), it matches
+// when any element is in the list (GrowthBook intersection semantics);
+// otherwise it matches on scalar membership.
 func inList(actual any, list []any) bool {
-	if arr, ok := actual.([]any); ok {
-		for _, a := range arr {
+	if rv := reflect.ValueOf(actual); rv.IsValid() &&
+		(rv.Kind() == reflect.Slice || rv.Kind() == reflect.Array) &&
+		// Exclude []byte, conventionally a scalar string-ish value rather than a
+		// list of elements to intersect.
+		rv.Type().Elem().Kind() != reflect.Uint8 {
+		for i := 0; i < rv.Len(); i++ {
+			a := rv.Index(i).Interface()
 			for _, v := range list {
 				if equalValues(a, v) {
 					return true

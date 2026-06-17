@@ -48,6 +48,23 @@ func TestConditionInArrayAttribute(t *testing.T) {
 	}
 }
 
+func TestConditionInTypedSliceAttribute(t *testing.T) {
+	// Callers commonly build attributes as typed slices ([]string, []int) rather
+	// than []any. $in must apply the same intersection semantics to those.
+	strCond := map[string]any{"cohorts": map[string]any{"$in": []any{"skip-on-sync-beta"}}}
+	if ok, err := matchCondition(strCond, Attributes{"cohorts": []string{"skip-on-sync-beta"}}); err != nil || !ok {
+		t.Errorf("[]string intersection should match: ok=%v err=%v", ok, err)
+	}
+	if ok, err := matchCondition(strCond, Attributes{"cohorts": []string{"other"}}); err != nil || ok {
+		t.Errorf("[]string no intersection should not match: ok=%v err=%v", ok, err)
+	}
+
+	intCond := map[string]any{"groups": map[string]any{"$in": []any{2, 3}}}
+	if ok, err := matchCondition(intCond, Attributes{"groups": []int{1, 2}}); err != nil || !ok {
+		t.Errorf("[]int intersection should match: ok=%v err=%v", ok, err)
+	}
+}
+
 func TestConditionTopLevelOperatorErrors(t *testing.T) {
 	for _, op := range []string{"$or", "$and", "$not", "$nor"} {
 		cond := map[string]any{op: []any{}}
