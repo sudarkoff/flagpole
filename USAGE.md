@@ -3,7 +3,7 @@
 A practical, recipe-oriented guide to adopting flagpole in a real service. It
 draws heavily on how [twocal](https://twocal.com) (a calendar-sync product)
 wires flagpole into a Go API + background worker, but it covers the other ways
-the library is meant to be used too. The [README](../README.md) is the
+the library is meant to be used too. The [README](README.md) is the
 reference; this is the cookbook.
 
 ## Contents
@@ -554,7 +554,7 @@ render.JSON(w, r, map[string]any{
 - **The official bindings, `@sudarkoff/flagpole-react`** (`npm i
   @sudarkoff/flagpole-react`) — a `FlagsProvider` plus `useFeatureIsOn` /
   `useFeatureValue` hooks. Reach for this if you want the maintained package and
-  its full hook surface. See [`react/README.md`](../react/README.md).
+  its full hook surface. See [`react/README.md`](react/README.md).
 
 - **A hand-rolled provider** when all you need is booleans. twocal hydrates the
   server-sent map into a trivial context and reads it with a one-line hook —

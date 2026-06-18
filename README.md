@@ -13,10 +13,17 @@ if c.For(flagpole.Attributes{"id": userID, "plan": "pro"}).IsOn("new-checkout") 
 }
 ```
 
+> **New here?** This README is the reference. For a task-oriented walkthrough —
+> wiring flagpole into a real service, attribute design, rollout recipes,
+> runtime flag management, staleness alerting, frontend hydration, and a
+> GrowthBook migration guide — see **[USAGE.md](USAGE.md)**, a cookbook drawn
+> from a production Go API + worker integration.
+
 ---
 
 ## Contents
 
+- [Usage cookbook (USAGE.md)](USAGE.md)
 - [Why flagpole](#why-flagpole)
 - [Install](#install)
 - [Quick start](#quick-start)
