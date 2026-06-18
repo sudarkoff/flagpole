@@ -1,7 +1,7 @@
 # Using flagpole
 
 A practical, recipe-oriented guide to adopting flagpole in a real service. It
-draws heavily on how [twocal](https://twocal.com) (a calendar-sync product)
+draws heavily on how [twocal](https://twocal.app) (a calendar-sync product)
 wires flagpole into a Go API + background worker, but it covers the other ways
 the library is meant to be used too. The [README](README.md) is the
 reference; this is the cookbook.
