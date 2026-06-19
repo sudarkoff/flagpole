@@ -29,8 +29,10 @@ type Rule struct {
 
 	// Advanced bucketing fields (Phase B+). Parsed but not evaluated; presence
 	// triggers the unsupported-case skip in the compatibility test suite.
-	Range   []float64        `json:"range,omitempty"`
-	Filters []map[string]any `json:"filters,omitempty"`
+	Range     []float64        `json:"range,omitempty"`
+	Ranges    [][]float64      `json:"ranges,omitempty"`    // per-variation bucket ranges
+	Namespace []any            `json:"namespace,omitempty"` // namespace exclusion
+	Filters   []map[string]any `json:"filters,omitempty"`
 
 	// Prerequisite flags (Phase B+). Parsed but not evaluated.
 	ParentConditions []map[string]any `json:"parentConditions,omitempty"`

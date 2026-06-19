@@ -4,8 +4,14 @@ import "fmt"
 
 // Result is the outcome of evaluating a feature.
 type Result struct {
-	Value any  // resolved value (force value or defaultValue)
+	Value any  // resolved value (force value, variation value, or defaultValue)
 	On    bool // truthiness of Value
+
+	// Experiment metadata (zero-valued for non-experiment results).
+	VariationID   int    // assigned variation index; meaningful only when InExperiment
+	InExperiment  bool   // true only on a genuine hash-based assignment
+	HashAttribute string // attribute used for bucketing
+	HashValue     string // the actual unit value bucketed (the join key)
 }
 
 // Evaluate resolves a feature for the given attributes. Rules are tried in
@@ -16,13 +22,21 @@ func Evaluate(f Feature, featureKey string, attrs Attributes) Result {
 		if rule.Condition != nil {
 			ok, err := matchCondition(rule.Condition, attrs)
 			if err != nil {
-				// A rule we cannot understand must not silently apply; skip it.
-				continue
+				continue // a rule we cannot understand must not silently apply
 			}
 			if !ok {
 				continue
 			}
 		}
+
+		// Experiment rule: variations present => assign a variation.
+		if len(rule.Variations) >= 2 {
+			if r, matched := assignExperiment(rule, attrs); matched {
+				return r
+			}
+			continue // not bucketed in => fall through to next rule / default
+		}
+
 		if rule.Coverage != nil {
 			if !inCoverage(rule, featureKey, attrs) {
 				continue
@@ -36,6 +50,46 @@ func Evaluate(f Feature, featureKey string, attrs Attributes) Result {
 		return Result{Value: val, On: truthy(val)}
 	}
 	return Result{Value: f.DefaultValue, On: truthy(f.DefaultValue)}
+}
+
+// assignExperiment buckets a unit into an experiment rule. matched is false when
+// the unit is not in the experiment (no identifier, unsupported hash version, or
+// outside coverage), in which case the caller falls through.
+func assignExperiment(rule Rule, attrs Attributes) (Result, bool) {
+	// hashVersion 2 only; an explicit other version is outside our subset.
+	if rule.HashVersion != nil && *rule.HashVersion != 2 {
+		return Result{}, false
+	}
+	hashAttr := rule.HashAttribute
+	if hashAttr == "" {
+		hashAttr = "id"
+	}
+	hashValue := stringAttr(attrs[hashAttr])
+	if hashValue == "" {
+		return Result{}, false // no identifier => never in an experiment
+	}
+	seed := rule.Seed
+	if seed == "" {
+		seed = rule.Key // experiment key is the default seed
+	}
+	coverage := 1.0
+	if rule.Coverage != nil {
+		coverage = *rule.Coverage
+	}
+	ranges := getBucketRanges(len(rule.Variations), coverage, rule.Weights)
+	i := chooseVariation(hashV2(seed, hashValue), ranges)
+	if i < 0 {
+		return Result{}, false // outside coverage
+	}
+	val := rule.Variations[i]
+	return Result{
+		Value:         val,
+		On:            truthy(val),
+		VariationID:   i,
+		InExperiment:  true,
+		HashAttribute: hashAttr,
+		HashValue:     hashValue,
+	}, true
 }
 
 func inCoverage(rule Rule, featureKey string, attrs Attributes) bool {
