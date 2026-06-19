@@ -21,8 +21,7 @@ type Rule struct {
 	Seed          string   `json:"seed,omitempty"`
 	HashVersion   *int     `json:"hashVersion,omitempty"`
 
-	// Experiment fields (Phase B). Present in the schema now; evaluation of
-	// experiment rules is not implemented in this plan.
+	// Experiment fields (Phase B). Evaluated by assignExperiment.
 	Key        string    `json:"key,omitempty"`
 	Variations []any     `json:"variations,omitempty"`
 	Weights    []float64 `json:"weights,omitempty"`

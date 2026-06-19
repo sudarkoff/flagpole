@@ -258,5 +258,5 @@ func TestCompatRun(t *testing.T) {
 	if asserted == 0 {
 		t.Fatal("expected at least some supported run cases to be asserted")
 	}
-	t.Logf("run: %d supported experiment cases asserted", asserted)
+	t.Logf("run: %d asserted of %d total run fixtures (rest skipped: v1 default / unsupported features)", asserted, len(cases))
 }

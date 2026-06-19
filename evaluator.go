@@ -56,7 +56,12 @@ func Evaluate(f Feature, featureKey string, attrs Attributes) Result {
 // the unit is not in the experiment (no identifier, unsupported hash version, or
 // outside coverage), in which case the caller falls through.
 func assignExperiment(rule Rule, attrs Attributes) (Result, bool) {
-	// hashVersion 2 only; an explicit other version is outside our subset.
+	// Note: rule.Ranges / rule.Namespace are not evaluated here. The compat
+	// suite skips such rules via usesUnsupported; direct-API callers are not.
+	// hashVersion 2 only. A nil hashVersion is treated as v2 (flagpole's
+	// default), which diverges from GrowthBook's nil-default of v1: callers
+	// porting GrowthBook experiment JSON should set hashVersion:2 explicitly.
+	// An explicit other version is outside our subset.
 	if rule.HashVersion != nil && *rule.HashVersion != 2 {
 		return Result{}, false
 	}
