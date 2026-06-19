@@ -149,9 +149,9 @@ type Evaluation struct {
 
 func (e *Evaluation) result(key string) Result {
 	e.mu.Lock()
-	defer e.mu.Unlock()
 	if e.cached != nil {
 		if r, ok := e.cached[key]; ok {
+			e.mu.Unlock()
 			return r
 		}
 	}
@@ -159,14 +159,21 @@ func (e *Evaluation) result(key string) Result {
 	e.client.mu.RLock()
 	feat, ok := e.client.features[key]
 	e.client.mu.RUnlock()
+
 	var r Result
 	if ok {
 		r = Evaluate(feat, key, e.attrs)
 	}
 
+	if e.cached == nil {
+		e.cached = make(map[string]Result)
+	}
+	e.cached[key] = r
+	e.mu.Unlock() // release before the potentially slow / re-entrant Track
+
 	if r.InExperiment {
 		e.client.tracker.Track(e.ctx, Exposure{
-			ExperimentKey: feat.experimentKey(key, r),
+			ExperimentKey: expKeyFor(key, r),
 			VariationID:   r.VariationID,
 			HashAttribute: r.HashAttribute,
 			HashValue:     r.HashValue,
@@ -174,12 +181,16 @@ func (e *Evaluation) result(key string) Result {
 			At:            time.Now(),
 		})
 	}
-
-	if e.cached == nil {
-		e.cached = make(map[string]Result)
-	}
-	e.cached[key] = r
 	return r
+}
+
+// expKeyFor returns the experiment key for an exposure: the matched rule's
+// Key, falling back to the feature key when the rule has no key.
+func expKeyFor(featureKey string, r Result) string {
+	if r.ExperimentKey != "" {
+		return r.ExperimentKey
+	}
+	return featureKey
 }
 
 // IsOn reports whether the flag resolves to a truthy value. Unknown flags are off.

@@ -12,6 +12,7 @@ type Result struct {
 	InExperiment  bool   // true only on a genuine hash-based assignment
 	HashAttribute string // attribute used for bucketing
 	HashValue     string // the actual unit value bucketed (the join key)
+	ExperimentKey string // matched experiment rule's Key; set only when InExperiment
 }
 
 // Evaluate resolves a feature for the given attributes. Rules are tried in
@@ -50,18 +51,6 @@ func Evaluate(f Feature, featureKey string, attrs Attributes) Result {
 		return Result{Value: val, On: truthy(val)}
 	}
 	return Result{Value: f.DefaultValue, On: truthy(f.DefaultValue)}
-}
-
-// experimentKey returns the experiment key recorded on an exposure: the Key of
-// the experiment rule that produced the in-experiment result, or featureKey as
-// a fallback.
-func (f Feature) experimentKey(featureKey string, r Result) string {
-	for _, rule := range f.Rules {
-		if len(rule.Variations) >= 2 && rule.Key != "" {
-			return rule.Key
-		}
-	}
-	return featureKey
 }
 
 // assignExperiment buckets a unit into an experiment rule. matched is false when
@@ -106,6 +95,7 @@ func assignExperiment(rule Rule, attrs Attributes) (Result, bool) {
 		InExperiment:  true,
 		HashAttribute: hashAttr,
 		HashValue:     hashValue,
+		ExperimentKey: rule.Key,
 	}, true
 }
 
