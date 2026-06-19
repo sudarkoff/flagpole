@@ -122,7 +122,8 @@ func (t *Tracker) Dropped() int64 { return t.dropped.Load() }
 // Close stops accepting new exposures, flushes what is queued, and waits for the
 // writer goroutine to finish. ctx bounds both the wait for the writer AND the
 // final flush write, so a deadline set on ctx will cancel the last DB INSERT if
-// it has not completed in time.
+// it has not completed in time. Rows in that final batch that cannot be written
+// within the deadline are passed to onError and are not retried.
 func (t *Tracker) Close(ctx context.Context) error {
 	t.closeOnce.Do(func() { t.closeCh <- ctx })
 	select {
