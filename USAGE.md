@@ -484,38 +484,100 @@ type Tracker interface {
 }
 
 type Exposure struct {
-    ExperimentKey string
-    VariationID   int
-    Attributes    Attributes
+    ExperimentKey string      // matched experiment rule's Key (or feature key)
+    VariationID   int         // assigned variation index
+    HashAttribute string      // attribute used for bucketing (e.g. "id")
+    HashValue     string      // the actual unit value bucketed — join key for analysis
+    Attributes    Attributes  // dimensions snapshot
     At            time.Time
 }
 ```
 
-twocal persists exposures to a Postgres table for warehouse analysis (note the
-same `string(attrs)` jsonb trick as the admin store):
+### trackpg cookbook — Postgres-backed async batching
+
+The bundled `trackpg` subpackage provides a production-ready Postgres tracker that batches exposures on a background goroutine — **never blocking the hot path** (drops and counts on buffer overflow).
+
+**Wire it:**
 
 ```go
-func (t *Tracker) Track(ctx context.Context, e flagpole.Exposure) {
-    attrs, _ := json.Marshal(e.Attributes)
-    hashUnit, _ := e.Attributes["id"].(string)
-    _, err := t.pool.Exec(ctx, `
-        INSERT INTO experiment_exposures (experiment_key, variation_id, hash_unit, attributes, exposed_at)
-        VALUES ($1, $2, $3, $4, $5)`,
-        e.ExperimentKey, e.VariationID, hashUnit, string(attrs), e.At)
-    if err != nil {
-        log.Warn().Err(err).Str("experiment", e.ExperimentKey).Msg("track exposure failed")
+import (
+    "github.com/jackc/pgx/v5/pgxpool"
+    "github.com/sudarkoff/flagpole"
+    "github.com/sudarkoff/flagpole/sourcepg"
+    "github.com/sudarkoff/flagpole/trackpg"
+)
+
+pool, _ := pgxpool.New(ctx, os.Getenv("DATABASE_URL"))
+
+// Create the tracker with error handling.
+tr := trackpg.New(pool,
+    trackpg.WithOnError(func(err error) {
+        log.Warn().Err(err).Msg("exposure batch failed, continuing")
+    }),
+)
+
+// Wire the tracker into the client.
+c, _ := flagpole.New(ctx, sourcepg.New(pool), flagpole.WithTracker(tr))
+defer func() {
+    if err := tr.Close(ctx); err != nil {
+        log.Error().Err(err).Msg("tracker close failed")
     }
-}
+    c.Close()
+}()
 ```
 
-Wire it with `flags.NewClient(ctx, pool, flagpole.WithTracker(flags.NewTracker(pool)))`.
-The `Exposure` shape mirrors GrowthBook's, so downstream analysis can use
-GrowthBook's warehouse-native tooling or your own SQL. (Exposure *analysis* —
-metrics, significance — is on the roadmap, not in this release; the seam is here
-so it's additive.)
+**Firing contract:**
+- Exposures fire **on every genuine assignment** — no cross-unit dedup (your warehouse takes first-exposure-per-unit per the GrowthBook convention).
+- **Non-blocking by contract:** the in-memory buffer (default 10,000) never blocks evaluation. When full, `Track` drops the exposure and counts it (`tr.Dropped()`). Check `tr.Dropped()` periodically in health/metrics to catch a saturated tracker.
+- **Async batching off the hot path:** exposures are queued, batched up to 100 rows (configurable), and written on a background goroutine with a 2-second flush window (configurable).
 
-A tracker that writes synchronously to a DB on every exposure can become a hot
-path of its own — buffer/batch or fire-and-forget if exposure volume is high.
+**Configuration options:**
+
+```go
+tr := trackpg.New(pool,
+    trackpg.WithBufferSize(50000),      // default 10,000
+    trackpg.WithBatchSize(500),         // default 100 per INSERT
+    trackpg.WithFlushInterval(5*time.Second), // default 2s
+    trackpg.WithTable("my_exposures"),  // default "experiment_exposures"
+    trackpg.WithOnError(onError),
+)
+```
+
+**Schema contract:** `trackpg/schema.sql` is the canonical DDL — the single source of truth for the table shape. Downstream readers (e.g. gnomon, your BI system) target that exact, versioned schema; neither flagpole nor gnomon imports the other. Run the migration yourself:
+
+```sql
+-- From trackpg/schema.sql (run this in your migrations)
+CREATE TABLE experiment_exposures (
+    id             BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    experiment_key TEXT        NOT NULL,
+    variation_id   INTEGER     NOT NULL,
+    hash_attribute TEXT        NOT NULL,   -- attribute used for bucketing
+    hash_value     TEXT        NOT NULL,   -- the unit value (join key)
+    attributes     JSONB       NOT NULL DEFAULT '{}',
+    exposed_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_experiment_exposures_key_time
+    ON experiment_exposures (experiment_key, exposed_at);
+```
+
+**Rolling your own:** if you don't use Postgres, implement the `flagpole.Tracker` interface against the same column shape:
+
+```go
+type MyTracker struct {
+    // your persistence client
+}
+
+func (mt *MyTracker) Track(ctx context.Context, e flagpole.Exposure) {
+    // Write to your store:
+    // experiment_key, variation_id, hash_attribute, hash_value, attributes, exposed_at
+    // Keep it non-blocking — a slow write on the hot path defeats the point.
+    // If buffering helps, buffer it; if fire-and-forget is OK, do that.
+}
+
+// Wire it:
+c, _ := flagpole.New(ctx, src, flagpole.WithTracker(MyTracker{}))
+```
 
 ## Exposing flags to a frontend
 

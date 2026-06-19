@@ -139,16 +139,24 @@ func TestCompatEvalCondition(t *testing.T) {
 //     the result of another flag evaluation, outside Phase-A.
 func usesUnsupported(f Feature) bool {
 	for _, r := range f.Rules {
-		if len(r.Variations) > 0 {
+		if len(r.Range) > 0 {
 			return true
 		}
-		if len(r.Range) > 0 {
+		if len(r.Ranges) > 0 {
+			return true
+		}
+		if len(r.Namespace) > 0 {
 			return true
 		}
 		if len(r.Filters) > 0 {
 			return true
 		}
 		if len(r.ParentConditions) > 0 {
+			return true
+		}
+		// Experiment rules only support hashVersion 2; default (nil) is v1 in
+		// GrowthBook, which we don't implement.
+		if len(r.Variations) >= 2 && (r.HashVersion == nil || *r.HashVersion != 2) {
 			return true
 		}
 		if r.HashVersion != nil && *r.HashVersion != 2 {
@@ -161,4 +169,94 @@ func usesUnsupported(f Feature) bool {
 		}
 	}
 	return false
+}
+
+// TestCompatRun validates experiment assignment against GrowthBook's run()
+// fixtures, mapped onto flagpole's experiment-as-rule model: the experiment
+// object becomes a single experiment Rule, with the feature default set to the
+// control variation so a not-in-experiment fall-through matches run()'s
+// not-in-experiment return value.
+func TestCompatRun(t *testing.T) {
+	all := loadCases(t)
+	var cases [][]json.RawMessage
+	if err := json.Unmarshal(all["run"], &cases); err != nil {
+		t.Fatalf("parse run cases: %v", err)
+	}
+	asserted := 0
+	for _, c := range cases {
+		var name string
+		_ = json.Unmarshal(c[0], &name)
+		var ctx struct {
+			Attributes Attributes `json:"attributes"`
+		}
+		if err := json.Unmarshal(c[1], &ctx); err != nil {
+			continue
+		}
+		var exp struct {
+			Key           string         `json:"key"`
+			Variations    []any          `json:"variations"`
+			Weights       []float64      `json:"weights"`
+			Coverage      *float64       `json:"coverage"`
+			HashAttribute string         `json:"hashAttribute"`
+			Seed          string         `json:"seed"`
+			HashVersion   *int           `json:"hashVersion"`
+			Condition     map[string]any `json:"condition"`
+			// Unsupported markers — presence => skip.
+			Namespace        json.RawMessage `json:"namespace"`
+			Filters          json.RawMessage `json:"filters"`
+			Ranges           json.RawMessage `json:"ranges"`
+			ParentConditions json.RawMessage `json:"parentConditions"`
+			Force            json.RawMessage `json:"force"`
+			Active           json.RawMessage `json:"active"`
+		}
+		if err := json.Unmarshal(c[2], &exp); err != nil {
+			continue
+		}
+		if exp.Namespace != nil || exp.Filters != nil || exp.Ranges != nil ||
+			exp.ParentConditions != nil || exp.Force != nil || exp.Active != nil {
+			continue // outside our supported subset
+		}
+		// We implement hashVersion 2 only; GrowthBook's default is v1.
+		if exp.HashVersion == nil || *exp.HashVersion != 2 {
+			continue
+		}
+		if len(exp.Variations) < 2 {
+			continue
+		}
+		if exp.Condition != nil {
+			if _, err := matchCondition(exp.Condition, Attributes{}); err != nil {
+				continue // condition uses an unsupported operator
+			}
+		}
+		var wantValue any
+		_ = json.Unmarshal(c[3], &wantValue)
+		var wantInExp bool
+		_ = json.Unmarshal(c[4], &wantInExp)
+
+		feat := Feature{
+			DefaultValue: exp.Variations[0], // control == not-in-experiment value
+			Rules: []Rule{{
+				Key:           exp.Key,
+				Variations:    exp.Variations,
+				Weights:       exp.Weights,
+				Coverage:      exp.Coverage,
+				HashAttribute: exp.HashAttribute,
+				Seed:          exp.Seed,
+				HashVersion:   exp.HashVersion,
+				Condition:     exp.Condition,
+			}},
+		}
+		got := Evaluate(feat, exp.Key, ctx.Attributes)
+		asserted++
+		if got.InExperiment != wantInExp {
+			t.Errorf("%s: inExperiment = %v, want %v", name, got.InExperiment, wantInExp)
+		}
+		if !reflect.DeepEqual(got.Value, wantValue) {
+			t.Errorf("%s: value = %#v, want %#v", name, got.Value, wantValue)
+		}
+	}
+	if asserted == 0 {
+		t.Fatal("expected at least some supported run cases to be asserted")
+	}
+	t.Logf("run: %d asserted of %d total run fixtures (rest skipped: v1 default / unsupported features)", asserted, len(cases))
 }

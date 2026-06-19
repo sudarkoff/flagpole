@@ -121,25 +121,76 @@ func (c *Client) Close() {
 	<-c.done
 }
 
-// For binds attributes for evaluation.
+// For binds attributes for evaluation, using a background context for any
+// exposure tracking.
 func (c *Client) For(attrs Attributes) *Evaluation {
-	return &Evaluation{client: c, attrs: attrs}
+	return c.ForContext(context.Background(), attrs)
 }
 
-// Evaluation evaluates flags for a fixed set of attributes.
+// ForContext binds attributes for evaluation. The context is passed to the
+// Tracker when an experiment exposure fires, so tracing/cancellation flows
+// through.
+func (c *Client) ForContext(ctx context.Context, attrs Attributes) *Evaluation {
+	return &Evaluation{client: c, ctx: ctx, attrs: attrs}
+}
+
+// Evaluation evaluates flags for a fixed set of attributes. It memoizes results
+// per feature key for the lifetime of the binding, so an experiment fires at
+// most one exposure per key per binding (not cross-unit dedup — that is the
+// warehouse's job).
 type Evaluation struct {
 	client *Client
+	ctx    context.Context
 	attrs  Attributes
+
+	mu     sync.Mutex
+	cached map[string]Result
 }
 
 func (e *Evaluation) result(key string) Result {
+	e.mu.Lock()
+	if e.cached != nil {
+		if r, ok := e.cached[key]; ok {
+			e.mu.Unlock()
+			return r
+		}
+	}
+
 	e.client.mu.RLock()
 	feat, ok := e.client.features[key]
 	e.client.mu.RUnlock()
-	if !ok {
-		return Result{Value: nil, On: false}
+
+	var r Result
+	if ok {
+		r = Evaluate(feat, key, e.attrs)
 	}
-	return Evaluate(feat, key, e.attrs)
+
+	if e.cached == nil {
+		e.cached = make(map[string]Result)
+	}
+	e.cached[key] = r
+	e.mu.Unlock() // release before the potentially slow / re-entrant Track
+
+	if r.InExperiment {
+		e.client.tracker.Track(e.ctx, Exposure{
+			ExperimentKey: expKeyFor(key, r),
+			VariationID:   r.VariationID,
+			HashAttribute: r.HashAttribute,
+			HashValue:     r.HashValue,
+			Attributes:    e.attrs,
+			At:            time.Now(),
+		})
+	}
+	return r
+}
+
+// expKeyFor returns the experiment key for an exposure: the matched rule's
+// Key, falling back to the feature key when the rule has no key.
+func expKeyFor(featureKey string, r Result) string {
+	if r.ExperimentKey != "" {
+		return r.ExperimentKey
+	}
+	return featureKey
 }
 
 // IsOn reports whether the flag resolves to a truthy value. Unknown flags are off.

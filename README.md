@@ -328,22 +328,60 @@ func (s pgStore) Archive(ctx context.Context, key string) error {
 
 ## Experiment exposure tracking
 
-`flagpole.Tracker` is the seam for logging experiment exposures:
+An **experiment** is a rule with `Variations` — a Feature is running an experiment iff a matched rule has `len(Variations) >= 2`. When such a rule matches, flagpole assigns a variation (using deterministic GrowthBook-compatible weighted bucketing via `hashVersion: 2`), and the feature's `Value`/`IsOn` resolve to the assigned variation's value.
+
+**Experiment knobs:**
+- `variations` — array of variation values (must have `≥ 2` entries for an experiment rule)
+- `weights` — optional array of per-variation weights that should sum to ~1.0 (default: equal split); e.g. `[0.3, 0.7]` is a 30%/70% split. A weights array whose sum falls outside 0.99–1.01, or whose length ≠ the number of variations, is replaced with an equal split.
+- `coverage` — optional fraction of matched units admitted to the experiment (the rest fall through to the feature default with no exposure); ramps the experiment
+- `condition` — optional targeting (existing condition subset) applies before assignment
+- `key` — optional explicit experiment key (used in `Exposure` for analysis; defaults to the feature key)
+- `seed` — optional hash seed (default: the rule's `key`); set it to re-randomize an experiment independently
+- `hashAttribute` — optional bucketing attribute (default `"id"`)
 
 ```go
-type Tracker interface {
-    Track(ctx context.Context, e Exposure)
+// An experiment rule with variations, weights, and rollout coverage:
+{
+  "key": "button-color-v2",
+  "condition": {"plan": "pro"},  // target pro users only
+  "coverage": 0.5,               // run on 50% of pro users
+  "variations": ["red", "blue", "green"],
+  "weights": [0.2, 0.3, 0.5],    // 20% red, 30% blue, 50% green (must sum to ~1.0)
+  "hashVersion": 2
 }
+```
 
+Exposures fire **on every genuine assignment** — no cross-unit dedup (downstream BI takes first-exposure-per-unit per the GrowthBook warehouse convention). Within a single `For(...)`/`ForContext(...)` binding, an exposure fires at most once per feature key.
+
+**Exposure firing and context propagation:**
+
+```go
+ev := c.For(attrs)                    // background context, no tracing propagation
+on := ev.IsOn("my-experiment")
+
+// Or with a traced context (recommended for analytics):
+ev := c.ForContext(ctx, attrs)        // ctx propagates to Tracker
+on := ev.IsOn("my-experiment")        // fires exposure via Tracker.Track(ctx, ...)
+```
+
+`ForContext(ctx, attrs)` propagates a context to the Tracker, so tracing/cancellation flows through. `For(attrs)` uses a background context.
+
+The enriched **`Exposure` shape** carries bucketing metadata for analysis:
+
+```go
 type Exposure struct {
-    ExperimentKey string
-    VariationID   int
-    Attributes    Attributes
+    ExperimentKey string      // matched experiment rule's Key (or feature key if rule.Key is unset)
+    VariationID   int         // assigned variation index
+    HashAttribute string      // attribute used for bucketing (e.g. "id")
+    HashValue     string      // the actual unit value bucketed — the join key for analysis
+    Attributes    Attributes  // dimensions snapshot
     At            time.Time
 }
 ```
 
-The default is `NoopTracker` (discards exposures). Provide one with `WithTracker(tr)` to feed your own analytics pipeline. The `Exposure` shape mirrors GrowthBook's exposure logging, so downstream analysis can be done by GrowthBook's warehouse-native tooling or by your own SQL. Exposure *analysis* (metrics, significance) is not part of this release — see the [roadmap](#roadmap).
+The default is `NoopTracker` (discards exposures). Provide one with `WithTracker(tr)` to feed your analytics pipeline. The `Exposure` shape mirrors GrowthBook's exposure logging, so downstream analysis can be done by GrowthBook's warehouse-native tooling or by your own SQL.
+
+**`trackpg` — batteries-included Postgres Tracker:** Use the bundled `trackpg` subpackage for a Postgres-backed, async-batching tracker that never blocks the hot path (drops and counts on buffer overflow). See [USAGE.md](USAGE.md) for the wiring and firing contract.
 
 ## GrowthBook compatibility
 
@@ -354,16 +392,22 @@ flagpole implements a strict, tested subset of the GrowthBook feature evaluation
 - Percentage rollout via `coverage` (deterministic FNV-1a v2 bucketing, `hashVersion: 2`)
 - `hashAttribute` and `seed` on rollout rules
 - Condition operators: equality (implicit, incl. array/object deep-equality), `$eq`, `$ne`, `$in` (set-intersection when the attribute is an array)
+- Experiment `variations` / `weights` / `key` on rules with `len(Variations) >= 2`
+- Experiment `coverage` (fractional rollout ramp)
+- Condition targeting on experiment rules
 
 **Out of scope (skipped, not evaluated):**
-- Experiment `variations` / `weights` / `key` (Phase B)
-- Condition operators: `$gt`, `$gte`, `$lt`, `$lte`, `$regex`, `$exists`, `$not`, `$or`, `$and`, `$nor`, and others
+- Namespaces (experiment exclusion groups)
 - `range`, `filters`, `parentConditions`
-- `hashVersion` other than 2
+- `hashVersion` other than 2 (a rule requesting any other version is skipped)
+- Sticky/fallback bucketing (always deterministic per unit)
+- Condition operators beyond: equality, `$eq`, `$ne`, `$in` (unsupported operators like `$gt`, `$regex`, `$or`, `$and`, `$nor`, etc. cause the rule to be skipped)
 
 A condition using an unsupported operator — including top-level `$or`/`$and`/`$not`/`$nor` — causes its rule to be **skipped**, never silently mis-evaluated.
 
-**Migrating from GrowthBook:** flagpole buckets with `hashVersion: 2`. A rollout rule with no `hashVersion` is bucketed with v2 here, whereas GrowthBook's default is v1 — so set `hashVersion: 2` explicitly on any rollout rule you intend to share between the two systems. A rule requesting any other version is skipped.
+**hashVersion caveat:** flagpole evaluates with `hashVersion: 2` and treats a missing `hashVersion` as v2 (the flagpole default). **GrowthBook's default is v1**, so on any rollout or experiment rule you intend to share between flagpole and GrowthBook, set `hashVersion: 2` explicitly. A rule requesting any other version is skipped.
+
+**Migrating from GrowthBook:** Ensure any rollout rule you share with GrowthBook has `hashVersion: 2` explicitly set so bucketing stays identical across both systems.
 
 Compatibility is validated against GrowthBook's published `cases.json` SDK test fixtures (`compat_test.go`): the hashing vectors, the feature-evaluation suite, and the `evalCondition` oracle for the supported operator subset. Unsupported fixtures are explicitly skipped rather than silently passed.
 
@@ -395,9 +439,8 @@ The compatibility suite (`compat_test.go`) runs flagpole's hashing and evaluator
 
 ## Roadmap
 
-- **Phase B — experiments** — exposure analysis: metric definitions, lift, and significance over the exposures captured by `Tracker`.
-
-The `Tracker`/`Exposure` seam and the experiment fields in the schema are already in place so these are additive.
+- **Phase B — experiments** ✓ shipped — rules with `variations` and weighted bucketing, exposure firing, and async Postgres batching tracker.
+- **Future** — exposure analysis: metric definitions, lift, and significance over experiment exposures; namespaces (experiment exclusion); sticky/fallback bucketing.
 
 ## License
 

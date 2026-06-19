@@ -21,16 +21,17 @@ type Rule struct {
 	Seed          string   `json:"seed,omitempty"`
 	HashVersion   *int     `json:"hashVersion,omitempty"`
 
-	// Experiment fields (Phase B). Present in the schema now; evaluation of
-	// experiment rules is not implemented in this plan.
+	// Experiment fields (Phase B). Evaluated by assignExperiment.
 	Key        string    `json:"key,omitempty"`
 	Variations []any     `json:"variations,omitempty"`
 	Weights    []float64 `json:"weights,omitempty"`
 
 	// Advanced bucketing fields (Phase B+). Parsed but not evaluated; presence
 	// triggers the unsupported-case skip in the compatibility test suite.
-	Range   []float64        `json:"range,omitempty"`
-	Filters []map[string]any `json:"filters,omitempty"`
+	Range     []float64        `json:"range,omitempty"`
+	Ranges    [][]float64      `json:"ranges,omitempty"`    // per-variation bucket ranges
+	Namespace []any            `json:"namespace,omitempty"` // namespace exclusion
+	Filters   []map[string]any `json:"filters,omitempty"`
 
 	// Prerequisite flags (Phase B+). Parsed but not evaluated.
 	ParentConditions []map[string]any `json:"parentConditions,omitempty"`
