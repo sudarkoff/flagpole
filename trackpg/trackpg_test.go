@@ -22,8 +22,15 @@ func testPool(t *testing.T) *pgxpool.Pool {
 		t.Fatalf("connect: %v", err)
 	}
 	t.Cleanup(pool.Close)
+	schema, err := os.ReadFile("schema.sql")
+	if err != nil {
+		t.Fatalf("read schema: %v", err)
+	}
+	if _, err := pool.Exec(context.Background(), string(schema)); err != nil {
+		t.Fatalf("apply schema: %v", err)
+	}
 	if _, err := pool.Exec(context.Background(), "TRUNCATE experiment_exposures"); err != nil {
-		t.Fatalf("truncate (did you apply schema.sql?): %v", err)
+		t.Fatalf("truncate: %v", err)
 	}
 	return pool
 }
