@@ -31,7 +31,7 @@ type Tracker struct {
 
 	closeOnce sync.Once
 	done      chan struct{}
-	cancel    context.CancelFunc
+	closeCh   chan context.Context
 }
 
 // Option configures a Tracker.
@@ -98,13 +98,12 @@ func New(pool *pgxpool.Pool, opts ...Option) *Tracker {
 		onError:       func(error) {},
 		ch:            make(chan flagpole.Exposure, 10000),
 		done:          make(chan struct{}),
+		closeCh:       make(chan context.Context, 1),
 	}
 	for _, o := range opts {
 		o(t)
 	}
-	var ctx context.Context
-	ctx, t.cancel = context.WithCancel(context.Background())
-	go t.loop(ctx)
+	go t.loop()
 	return t
 }
 
@@ -121,9 +120,11 @@ func (t *Tracker) Track(_ context.Context, e flagpole.Exposure) {
 func (t *Tracker) Dropped() int64 { return t.dropped.Load() }
 
 // Close stops accepting new exposures, flushes what is queued, and waits for the
-// writer goroutine to finish.
+// writer goroutine to finish. ctx bounds both the wait for the writer AND the
+// final flush write, so a deadline set on ctx will cancel the last DB INSERT if
+// it has not completed in time.
 func (t *Tracker) Close(ctx context.Context) error {
-	t.closeOnce.Do(func() { t.cancel() })
+	t.closeOnce.Do(func() { t.closeCh <- ctx })
 	select {
 	case <-t.done:
 		return nil
@@ -132,17 +133,17 @@ func (t *Tracker) Close(ctx context.Context) error {
 	}
 }
 
-func (t *Tracker) loop(ctx context.Context) {
+func (t *Tracker) loop() {
 	defer close(t.done)
 	ticker := time.NewTicker(t.flushInterval)
 	defer ticker.Stop()
 	batch := make([]flagpole.Exposure, 0, t.batchSize)
 
-	flush := func() {
+	flush := func(ctx context.Context) {
 		if len(batch) == 0 {
 			return
 		}
-		if err := t.write(context.Background(), batch); err != nil {
+		if err := t.write(ctx, batch); err != nil {
 			t.onError(err)
 		}
 		batch = batch[:0]
@@ -150,27 +151,28 @@ func (t *Tracker) loop(ctx context.Context) {
 
 	for {
 		select {
-		case <-ctx.Done():
-			// Drain whatever is buffered, then flush and return.
+		case closeCtx := <-t.closeCh:
+			// Shutdown: drain whatever is buffered and flush with the caller's
+			// context, so Close's deadline bounds the final write. Then return.
 			for {
 				select {
 				case e := <-t.ch:
 					batch = append(batch, e)
 					if len(batch) >= t.batchSize {
-						flush()
+						flush(closeCtx)
 					}
 				default:
-					flush()
+					flush(closeCtx)
 					return
 				}
 			}
 		case e := <-t.ch:
 			batch = append(batch, e)
 			if len(batch) >= t.batchSize {
-				flush()
+				flush(context.Background())
 			}
 		case <-ticker.C:
-			flush()
+			flush(context.Background())
 		}
 	}
 }
@@ -180,13 +182,14 @@ func (t *Tracker) write(ctx context.Context, batch []flagpole.Exposure) error {
 	for i, e := range batch {
 		attrs, err := json.Marshal(e.Attributes)
 		if err != nil {
+			t.onError(fmt.Errorf("trackpg: marshal attributes for %q: %w", e.ExperimentKey, err))
 			attrs = []byte("{}")
 		}
 		at := e.At
 		if at.IsZero() {
 			at = time.Now()
 		}
-		rows[i] = []any{e.ExperimentKey, e.VariationID, e.HashAttribute, e.HashValue, attrs, at}
+		rows[i] = []any{e.ExperimentKey, e.VariationID, e.HashAttribute, e.HashValue, json.RawMessage(attrs), at}
 	}
 	_, err := t.pool.CopyFrom(ctx,
 		pgx.Identifier{t.table},
