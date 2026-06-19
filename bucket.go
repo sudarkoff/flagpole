@@ -10,7 +10,7 @@ func getEqualWeights(n int) []float64 {
 	}
 	w := make([]float64, n)
 	for i := range w {
-		w[i] = 1.0 / float64(n)
+		w[i] = math.Round(1.0/float64(n)*1e8) / 1e8
 	}
 	return w
 }

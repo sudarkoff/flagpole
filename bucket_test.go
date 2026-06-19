@@ -35,7 +35,7 @@ func TestCompatGetEqualWeights(t *testing.T) {
 			continue
 		}
 		for i := range want {
-			if math.Abs(got[i]-want[i]) > 1e-8 {
+			if math.Abs(got[i]-want[i]) > 1e-9 {
 				t.Errorf("getEqualWeights(%d)[%d] = %v, want %v", n, i, got[i], want[i])
 			}
 		}
