@@ -11,7 +11,9 @@ import (
 type Exposure struct {
 	ExperimentKey string
 	VariationID   int
-	Attributes    Attributes
+	HashAttribute string     // attribute used for bucketing, e.g. "id"
+	HashValue     string     // the actual unit value bucketed (the join key)
+	Attributes    Attributes // dimensions snapshot
 	At            time.Time
 }
 

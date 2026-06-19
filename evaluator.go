@@ -52,6 +52,18 @@ func Evaluate(f Feature, featureKey string, attrs Attributes) Result {
 	return Result{Value: f.DefaultValue, On: truthy(f.DefaultValue)}
 }
 
+// experimentKey returns the experiment key recorded on an exposure: the Key of
+// the experiment rule that produced the in-experiment result, or featureKey as
+// a fallback.
+func (f Feature) experimentKey(featureKey string, r Result) string {
+	for _, rule := range f.Rules {
+		if len(rule.Variations) >= 2 && rule.Key != "" {
+			return rule.Key
+		}
+	}
+	return featureKey
+}
+
 // assignExperiment buckets a unit into an experiment rule. matched is false when
 // the unit is not in the experiment (no identifier, unsupported hash version, or
 // outside coverage), in which case the caller falls through.
