@@ -109,7 +109,7 @@ for the experiment definition.
       Value any
       On    bool
       // Experiment metadata (zero-valued for non-experiment results):
-      VariationID   int    // assigned variation index; -1 when not in experiment
+      VariationID   int    // assigned variation index; meaningful only when InExperiment
       InExperiment  bool   // true only on a genuine hash-based assignment
       HashAttribute string // attribute used for bucketing
       HashValue     string // the actual unit value bucketed
