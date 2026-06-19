@@ -332,7 +332,7 @@ An **experiment** is a rule with `Variations` — a Feature is running an experi
 
 **Experiment knobs:**
 - `variations` — array of variation values (must have `≥ 2` entries for an experiment rule)
-- `weights` — optional array of cumulative bucket weights (default: equal split); e.g. `[0.3, 1.0]` is a 30%/70% split
+- `weights` — optional array of per-variation weights that should sum to ~1.0 (default: equal split); e.g. `[0.3, 0.7]` is a 30%/70% split. A weights array whose sum falls outside 0.99–1.01, or whose length ≠ the number of variations, is replaced with an equal split.
 - `coverage` — optional fraction of matched units admitted to the experiment (the rest fall through to the feature default with no exposure); ramps the experiment
 - `condition` — optional targeting (existing condition subset) applies before assignment
 - `key` — optional explicit experiment key (used in `Exposure` for analysis; defaults to the feature key)
@@ -346,7 +346,7 @@ An **experiment** is a rule with `Variations` — a Feature is running an experi
   "condition": {"plan": "pro"},  // target pro users only
   "coverage": 0.5,               // run on 50% of pro users
   "variations": ["red", "blue", "green"],
-  "weights": [0.2, 0.5, 1.0],    // 20% red, 30% blue, 50% green
+  "weights": [0.2, 0.3, 0.5],    // 20% red, 30% blue, 50% green (must sum to ~1.0)
   "hashVersion": 2
 }
 ```
