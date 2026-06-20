@@ -12,33 +12,66 @@ import (
 	"github.com/sudarkoff/flagpole"
 )
 
-// memStore is an in-memory Store for testing.
+// memStore is an in-memory Store for testing. Archived records move to the
+// archived map; Restore moves them back.
 type memStore struct {
-	mu   sync.Mutex
-	defs map[string]flagpole.Feature
+	mu       sync.Mutex
+	defs     map[string]Record
+	archived map[string]Record
 }
 
-func (m *memStore) List(context.Context) (map[string]flagpole.Feature, error) {
+func newMemStore() *memStore {
+	return &memStore{defs: map[string]Record{}, archived: map[string]Record{}}
+}
+
+func (m *memStore) List(context.Context) (map[string]Record, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	cp := make(map[string]flagpole.Feature, len(m.defs))
+	cp := make(map[string]Record, len(m.defs))
 	for k, v := range m.defs {
 		cp[k] = v
 	}
 	return cp, nil
 }
 
-func (m *memStore) Upsert(_ context.Context, key string, f flagpole.Feature) error {
+func (m *memStore) ListArchived(context.Context) (map[string]Record, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.defs[key] = f
+	cp := make(map[string]Record, len(m.archived))
+	for k, v := range m.archived {
+		cp[k] = v
+	}
+	return cp, nil
+}
+
+func (m *memStore) Upsert(_ context.Context, key string, r Record) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r.Archived = false
+	m.defs[key] = r
+	delete(m.archived, key)
 	return nil
 }
 
 func (m *memStore) Archive(_ context.Context, key string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	delete(m.defs, key)
+	if r, ok := m.defs[key]; ok {
+		r.Archived = true
+		m.archived[key] = r
+		delete(m.defs, key)
+	}
+	return nil
+}
+
+func (m *memStore) Restore(_ context.Context, key string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if r, ok := m.archived[key]; ok {
+		r.Archived = false
+		m.defs[key] = r
+		delete(m.archived, key)
+	}
 	return nil
 }
 
@@ -46,24 +79,20 @@ func (m *memStore) Archive(_ context.Context, key string) error {
 // the 500 path in the PUT handler.
 type errStore struct{}
 
-func (e *errStore) List(_ context.Context) (map[string]flagpole.Feature, error) {
-	return nil, nil
-}
-
-func (e *errStore) Upsert(_ context.Context, _ string, _ flagpole.Feature) error {
+func (e *errStore) List(_ context.Context) (map[string]Record, error)         { return nil, nil }
+func (e *errStore) ListArchived(_ context.Context) (map[string]Record, error) { return nil, nil }
+func (e *errStore) Upsert(_ context.Context, _ string, _ Record) error {
 	return errors.New("store unavailable")
 }
-
-func (e *errStore) Archive(_ context.Context, _ string) error {
-	return nil
-}
+func (e *errStore) Archive(_ context.Context, _ string) error { return nil }
+func (e *errStore) Restore(_ context.Context, _ string) error { return nil }
 
 func TestUpsertThenList(t *testing.T) {
-	store := &memStore{defs: map[string]flagpole.Feature{}}
+	store := newMemStore()
 	h := NewHandler(store)
 
-	// Upsert
-	body := `{"defaultValue": false, "rules": [{"force": true, "coverage": 0.5}]}`
+	// Upsert with a description alongside the definition.
+	body := `{"defaultValue": false, "rules": [{"force": true, "coverage": 0.5}], "description": "rollout test"}`
 	req := httptest.NewRequest(http.MethodPut, "/flags/new-flag", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -81,34 +110,66 @@ func TestUpsertThenList(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "new-flag") {
 		t.Errorf("list missing new-flag: %s", rec.Body.String())
 	}
+	// The description rides along in the response (superset of bare Feature).
+	if !strings.Contains(rec.Body.String(), "rollout test") {
+		t.Errorf("list missing description: %s", rec.Body.String())
+	}
 }
 
-func TestDeleteArchives(t *testing.T) {
-	store := &memStore{defs: map[string]flagpole.Feature{
-		"to-delete": {DefaultValue: true},
-	}}
+func TestDeleteArchivesThenRestore(t *testing.T) {
+	store := newMemStore()
+	store.defs["to-delete"] = Record{Feature: flagpole.Feature{DefaultValue: true}}
 	h := NewHandler(store)
 
+	// DELETE archives.
 	req := httptest.NewRequest(http.MethodDelete, "/flags/to-delete", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("delete status = %d, want 200", rec.Code)
 	}
-
-	flags, err := store.List(req.Context())
-	if err != nil {
-		t.Fatalf("list error: %v", err)
-	}
+	flags, _ := store.List(req.Context())
 	if _, exists := flags["to-delete"]; exists {
-		t.Errorf("expected key 'to-delete' to be removed from store after DELETE")
+		t.Errorf("expected 'to-delete' removed from active list after DELETE")
+	}
+	arch, _ := store.ListArchived(req.Context())
+	if _, ok := arch["to-delete"]; !ok {
+		t.Errorf("expected 'to-delete' to appear in archived list after DELETE")
+	}
+
+	// Archived list endpoint surfaces it.
+	req = httptest.NewRequest(http.MethodGet, "/flags?archived=true", nil)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "to-delete") {
+		t.Fatalf("archived list status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	// POST /flags/{key}/restore brings it back.
+	req = httptest.NewRequest(http.MethodPost, "/flags/to-delete/restore", nil)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("restore status = %d, want 200", rec.Code)
+	}
+	flags, _ = store.List(req.Context())
+	if _, ok := flags["to-delete"]; !ok {
+		t.Errorf("expected 'to-delete' back in active list after restore")
+	}
+}
+
+func TestRestoreWrongMethodIs405(t *testing.T) {
+	h := NewHandler(newMemStore())
+	req := httptest.NewRequest(http.MethodGet, "/flags/x/restore", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("GET restore status = %d, want 405", rec.Code)
 	}
 }
 
 func TestGetOnSpecificKeyIs405(t *testing.T) {
-	store := &memStore{defs: map[string]flagpole.Feature{}}
-	h := NewHandler(store)
-
+	h := NewHandler(newMemStore())
 	req := httptest.NewRequest(http.MethodGet, "/flags/somekey", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -118,9 +179,7 @@ func TestGetOnSpecificKeyIs405(t *testing.T) {
 }
 
 func TestPostFlagsIs405(t *testing.T) {
-	store := &memStore{defs: map[string]flagpole.Feature{}}
-	h := NewHandler(store)
-
+	h := NewHandler(newMemStore())
 	req := httptest.NewRequest(http.MethodPost, "/flags", strings.NewReader("{}"))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -130,9 +189,7 @@ func TestPostFlagsIs405(t *testing.T) {
 }
 
 func TestPutEmptyKeyIs400(t *testing.T) {
-	store := &memStore{defs: map[string]flagpole.Feature{}}
-	h := NewHandler(store)
-
+	h := NewHandler(newMemStore())
 	req := httptest.NewRequest(http.MethodPut, "/flags/", strings.NewReader("{}"))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -142,9 +199,7 @@ func TestPutEmptyKeyIs400(t *testing.T) {
 }
 
 func TestBadJSONIs400(t *testing.T) {
-	store := &memStore{defs: map[string]flagpole.Feature{}}
-	h := NewHandler(store)
-
+	h := NewHandler(newMemStore())
 	req := httptest.NewRequest(http.MethodPut, "/flags/x", strings.NewReader("{not json"))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -155,7 +210,6 @@ func TestBadJSONIs400(t *testing.T) {
 
 func TestStoreErrorSurfaces500(t *testing.T) {
 	h := NewHandler(&errStore{})
-
 	body := `{"defaultValue": false}`
 	req := httptest.NewRequest(http.MethodPut, "/flags/x", strings.NewReader(body))
 	rec := httptest.NewRecorder()
